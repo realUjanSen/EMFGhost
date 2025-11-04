@@ -148,7 +148,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="TEMPERATURE (°C)"
-                    android:textColor="#00FFFF"
+                    android:textColor="#888888"
                     android:textSize="14sp"
                     android:fontFamily="monospace"/>
 

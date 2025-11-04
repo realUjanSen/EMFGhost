@@ -16,7 +16,7 @@ public class AnalogGaugeView extends View {
     private Paint centerPaint;
     private Paint textPaint;
     private float currentValue = 0f;
-    private static final float MAX_VALUE = 500f;
+    private static final float MAX_VALUE = 600f;
     private static final float START_ANGLE = 180f;
     private static final float SWEEP_ANGLE = 180f;
 

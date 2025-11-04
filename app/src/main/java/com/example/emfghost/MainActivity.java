@@ -69,17 +69,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
         temperatureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE);
 
-        // Get sensor names
+        // Get sensor names - show hardware model
         if (magneticSensor != null) {
-            magneticSensorName = magneticSensor.getName();
+            magneticSensorName = extractSensorIdentifier(magneticSensor);
         }
 
         if (temperatureSensor != null) {
-            temperatureSensorName = temperatureSensor.getName();
+            temperatureSensorName = extractSensorIdentifier(temperatureSensor);
             isTemperatureSimulated = false;
         } else {
-            temperatureSensorName = "Simulated (No hardware sensor)";
+            temperatureSensorName = "Environmental Simulation Module";
             isTemperatureSimulated = true;
+            // Start with normal room temperature
+            currentTemperature = 26.5f;
         }
 
         // Initialize database
@@ -137,6 +139,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             float z = event.values[2];
             currentMagneticField = (float) Math.sqrt(x * x + y * y + z * z);
 
+            // Simulate temperature drop when magnetic field is high
+            if (isTemperatureSimulated) {
+                simulateTemperature();
+            }
+
             notifyFragments();
             updateSound();
 
@@ -149,6 +156,93 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
         // Not needed
+    }
+
+    private void simulateTemperature() {
+        // Normal temperature: 25-28°C with slow gradual changes
+        // When magnetic field >= 60: temperature starts dropping gradually
+        // At 100: reaches 0°C
+        // At 200+: around -10°C (minimum)
+
+        float targetTemp;
+
+        if (currentMagneticField < 60) {
+            // Normal range: 25-28°C with gentle oscillation
+            long time = System.currentTimeMillis();
+            double wave = Math.sin(time / 10000.0) * 1.5; // Slow wave
+            targetTemp = 26.5f + (float)wave;
+        } else {
+            // Temperature drops gradually with magnetic field
+            // Linear drop from 26°C at 60μT to 0°C at 100μT, then continues to -10°C at 200μT
+
+            if (currentMagneticField <= 100) {
+                // Linear interpolation from 26°C at 60μT to 0°C at 100μT
+                // slope = (0 - 26) / (100 - 60) = -26/40 = -0.65
+                targetTemp = 26f - ((currentMagneticField - 60f) * 0.65f);
+            } else {
+                // Below 0°C: continues dropping from 0°C at 100μT to -10°C at 200μT
+                // slope = (-10 - 0) / (200 - 100) = -10/100 = -0.1
+                targetTemp = 0f - ((currentMagneticField - 100f) * 0.1f);
+                // Cap at -10°C minimum
+                targetTemp = Math.max(-10f, targetTemp);
+            }
+        }
+
+        // Smooth transition (lerp)
+        float smoothing = 0.05f;
+        currentTemperature += (targetTemp - currentTemperature) * smoothing;
+    }
+
+    private String extractSensorIdentifier(Sensor sensor) {
+        // Try to get a meaningful hardware identifier
+        String name = sensor.getName();
+        String vendor = sensor.getVendor();
+
+        // If name is null or empty
+        if (name == null || name.isEmpty()) {
+            return "Unknown Module";
+        }
+
+        // Check if name is generic (like "MAGNETOMETER" or "Magnetic Field Sensor")
+        String upperName = name.toUpperCase();
+        boolean isGeneric = upperName.equals("MAGNETOMETER") ||
+                           upperName.equals("TEMPERATURE") ||
+                           upperName.equals("MAGNETIC FIELD SENSOR") ||
+                           upperName.equals("AMBIENT TEMPERATURE SENSOR") ||
+                           upperName.equals("MAGNETIC FIELD") ||
+                           upperName.equals("AMBIENT TEMPERATURE");
+
+        if (isGeneric) {
+            // Use vendor name and create identifier
+            if (vendor != null && !vendor.isEmpty() && !vendor.equalsIgnoreCase("unknown")) {
+                // Clean up vendor name
+                String cleanVendor = vendor.replace("Inc.", "").replace("Co.", "").replace(",", "").trim();
+                String[] vendorParts = cleanVendor.split(" ");
+                String shortVendor = vendorParts[0];
+
+                // Create identifier like "Qualcomm-MF1" or "MediaTek-MF2"
+                String typeCode = sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD ? "MF" : "AT";
+                return shortVendor + "-" + typeCode + sensor.getVersion();
+            } else {
+                // Fallback: use type and version
+                int type = sensor.getType();
+                String typePrefix = type == Sensor.TYPE_MAGNETIC_FIELD ? "MFD" : "TMP";
+                return typePrefix + "-" + sensor.getVersion();
+            }
+        }
+
+        // Name is specific (like "akm09919" or "AK09918 Magnetic field Sensor")
+        // Extract just the chip model number
+        String trimmedName = name.trim();
+
+        // If it contains spaces, take the first part (usually the chip model)
+        if (trimmedName.contains(" ")) {
+            String[] parts = trimmedName.split(" ");
+            return parts[0].toUpperCase(); // Return first part in uppercase (chip model)
+        }
+
+        // No spaces, return as-is but uppercase for consistency
+        return trimmedName.toUpperCase();
     }
 
     private void notifyFragments() {
@@ -186,8 +280,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void updateSound() {
         if (currentMagneticField >= 60) {
             // Calculate playback rate (pitch) based on magnetic field
-            // 60 μT = lowest pitch (0.5x), 500+ μT = highest pitch (2.0x)
-            float pitch = 0.5f + ((currentMagneticField - 60) / 440f) * 1.5f;
+            // 60 μT = lowest pitch (0.5x), 600+ μT = highest pitch (2.0x)
+            float pitch = 0.5f + ((currentMagneticField - 60) / 540f) * 1.5f;
             pitch = Math.max(0.5f, Math.min(2.0f, pitch));
 
             if (currentStreamId == -1) {
