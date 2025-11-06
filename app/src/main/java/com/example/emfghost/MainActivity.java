@@ -4,6 +4,8 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraManager;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.os.Bundle;
@@ -50,6 +52,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private int soundId;
     private int currentStreamId = -1;
     private float currentPlaybackRate = 1.0f;
+
+    // Flashlight
+    private CameraManager cameraManager;
+    private String cameraId;
+    private boolean isFlashlightEnabled = false;
+    private boolean isFlashlightOn = false;
+    private float currentFlickerFrequency = 0f; // Dims per second
+    private Handler flashHandler = new Handler(Looper.getMainLooper());
+    private Runnable flickerRunnable;
+    private int currentFlickerMode = -1; // Track current flicker mode to avoid restarting
 
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable recordingRunnable;
@@ -98,6 +110,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 .build();
         soundId = soundPool.load(this, R.raw.emf_alert, 1);
 
+        // Initialize camera for flashlight
+        cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
+        try {
+            cameraId = cameraManager.getCameraIdList()[0];
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
         currentSessionReadings = new ArrayList<>();
     }
 
@@ -117,6 +137,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onPause();
         sensorManager.unregisterListener(this);
         stopSound();
+        stopFlashlightFlicker();
+        turnOffFlashlight();
     }
 
     @Override
@@ -126,6 +148,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             soundPool.release();
             soundPool = null;
         }
+        stopFlashlightFlicker();
+        turnOffFlashlight();
         if (isRecording) {
             stopRecording();
         }
@@ -146,6 +170,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             notifyFragments();
             updateSound();
+            updateFlashlight();
 
         } else if (event.sensor.getType() == Sensor.TYPE_AMBIENT_TEMPERATURE) {
             currentTemperature = event.values[0];
@@ -351,6 +376,265 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
 
         currentSessionReadings = new ArrayList<>();
+    }
+
+    // Flashlight methods
+    public void setFlashlightEnabled(boolean enabled) {
+        android.util.Log.d("EMFGhost", "setFlashlightEnabled called: " + enabled);
+        isFlashlightEnabled = enabled;
+        if (!enabled) {
+            android.util.Log.d("EMFGhost", "Disabling flashlight");
+            currentFlickerMode = -1; // Reset mode when disabling
+            currentFlickerFrequency = 0f; // Reset frequency
+            stopFlashlightFlicker();
+            turnOffFlashlight();
+        } else {
+            android.util.Log.d("EMFGhost", "Enabling flashlight, calling updateFlashlight()");
+            currentFlickerMode = -1; // Reset mode when enabling to force initial setup
+            updateFlashlight();
+        }
+    }
+
+    private void updateFlashlight() {
+        android.util.Log.d("EMFGhost", "updateFlashlight() called. isFlashlightEnabled=" + isFlashlightEnabled + ", currentMagneticField=" + currentMagneticField);
+
+        if (!isFlashlightEnabled) {
+            android.util.Log.d("EMFGhost", "Flashlight disabled, returning");
+            return;
+        }
+
+        // Determine which flicker mode we should be in
+        int newFlickerMode;
+        if (currentMagneticField < 60) {
+            newFlickerMode = 0; // Steady on
+        } else if (currentMagneticField < 100) {
+            newFlickerMode = 1; // Little flicker
+        } else if (currentMagneticField < 200) {
+            newFlickerMode = 2; // Moderate flicker
+        } else if (currentMagneticField < 400) {
+            newFlickerMode = 3; // Fast flicker
+        } else {
+            newFlickerMode = 4; // Extreme flicker
+        }
+
+        android.util.Log.d("EMFGhost", "Calculated flicker mode: " + newFlickerMode + " (current mode: " + currentFlickerMode + ")");
+
+        // Only restart if mode changed
+        if (newFlickerMode != currentFlickerMode) {
+            android.util.Log.d("EMFGhost", "Flicker mode changing: " + currentFlickerMode + " -> " + newFlickerMode + " (EMF: " + currentMagneticField + ")");
+            currentFlickerMode = newFlickerMode;
+
+            // Stop any existing flicker pattern
+            stopFlashlightFlicker();
+
+            switch (currentFlickerMode) {
+                case 0: // Below 60: steady on
+                    android.util.Log.d("EMFGhost", "Starting steady ON mode");
+                    currentFlickerFrequency = 0f;
+                    turnOnFlashlight();
+                    break;
+                case 1: // 60-100: little flicker
+                    android.util.Log.d("EMFGhost", "Starting little flicker mode");
+                    currentFlickerFrequency = 1.0f;
+                    startLittleFlicker();
+                    break;
+                case 2: // 100-200: moderate flicker
+                    android.util.Log.d("EMFGhost", "Starting moderate flicker mode");
+                    currentFlickerFrequency = 1.5f;
+                    startModerateFlicker();
+                    break;
+                case 3: // 200-400: fast flicker
+                    android.util.Log.d("EMFGhost", "Starting fast flicker mode");
+                    currentFlickerFrequency = 2.5f;
+                    startFastFlicker();
+                    break;
+                case 4: // 400+: extreme flicker
+                    android.util.Log.d("EMFGhost", "Starting extreme flicker mode");
+                    currentFlickerFrequency = 4.0f;
+                    startExtremeFlicker();
+                    break;
+            }
+        } else {
+            android.util.Log.d("EMFGhost", "Mode unchanged, no restart needed");
+        }
+    }
+
+    private void startLittleFlicker() {
+         // 60-100: Gentle flicker - 1 flicker per second
+        // ON for 0.7s, OFF for 0.3s (noticeable but gentle)
+        flickerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isFlashlightEnabled || currentFlickerMode != 1) {
+                    return;
+                }
+
+                // Turn ON for 0.7s
+                turnOnFlashlight();
+
+                // Turn OFF after 0.7s
+                flashHandler.postDelayed(() -> {
+                    if (isFlashlightEnabled && currentFlickerMode == 1) {
+                        turnOffFlashlight();
+                    }
+                }, 700);
+
+                // Repeat every 1 second
+                flashHandler.postDelayed(this, 1000);
+            }
+        };
+
+        // Start first flicker immediately
+        flashHandler.post(flickerRunnable);
+    }
+
+    private void startModerateFlicker() {
+        // 100-200: Moderate flicker - 1.5 flickers per second
+        // Each burst: 0.4s ON, 0.27s OFF (total ~0.67s per burst)
+        flickerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isFlashlightEnabled || currentFlickerMode != 2) {
+                    return;
+                }
+
+                // Turn ON for 0.4s
+                turnOnFlashlight();
+
+                // Turn OFF after 0.4s
+                flashHandler.postDelayed(() -> {
+                    if (isFlashlightEnabled && currentFlickerMode == 2) {
+                        turnOffFlashlight();
+                    }
+                }, 400);
+
+                // Next burst after 0.67s (1.5 per second)
+                flashHandler.postDelayed(this, 670);
+            }
+        };
+
+        // Start first burst immediately
+        flashHandler.post(flickerRunnable);
+    }
+
+    private void startFastFlicker() {
+        // 200-400: Fast flicker - 2.5 flickers per second
+        // Each burst: 0.2s ON, 0.2s OFF (total 0.4s per burst)
+        flickerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isFlashlightEnabled || currentFlickerMode != 3) {
+                    return;
+                }
+
+                // Turn ON for 0.2s
+                turnOnFlashlight();
+
+                // Turn OFF after 0.2s
+                flashHandler.postDelayed(() -> {
+                    if (isFlashlightEnabled && currentFlickerMode == 3) {
+                        turnOffFlashlight();
+                    }
+                }, 200);
+
+                // Next burst after 0.4s (2.5 per second)
+                flashHandler.postDelayed(this, 400);
+            }
+        };
+
+        // Start first burst immediately
+        flashHandler.post(flickerRunnable);
+    }
+
+    private void startExtremeFlicker() {
+        // 400+: Extreme flicker - 4 flickers per second (rapid strobe)
+        // Each burst: 0.125s ON, 0.125s OFF (total 0.25s per burst)
+        flickerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isFlashlightEnabled || currentFlickerMode != 4) {
+                    return;
+                }
+
+                // Turn ON for 0.125s
+                turnOnFlashlight();
+
+                // Turn OFF after 0.125s
+                flashHandler.postDelayed(() -> {
+                    if (isFlashlightEnabled && currentFlickerMode == 4) {
+                        turnOffFlashlight();
+                    }
+                }, 125);
+
+                // Next burst after 0.25s (4 per second)
+                flashHandler.postDelayed(this, 250);
+            }
+        };
+
+        // Start first burst immediately
+        flashHandler.post(flickerRunnable);
+    }
+
+    private void stopFlashlightFlicker() {
+        if (flickerRunnable != null) {
+            flashHandler.removeCallbacks(flickerRunnable);
+            flickerRunnable = null;
+        }
+    }
+
+    private void turnOnFlashlight() {
+        if (isFlashlightOn) {
+            android.util.Log.d("EMFGhost", "Flashlight already ON, skipping");
+            return; // Already on, don't call API again
+        }
+
+        android.util.Log.d("EMFGhost", "Attempting to turn flashlight ON");
+        try {
+            if (cameraManager != null && cameraId != null) {
+                cameraManager.setTorchMode(cameraId, true);
+                isFlashlightOn = true;
+                notifyFlashlightStatus();
+                android.util.Log.d("EMFGhost", "Flashlight turned ON successfully");
+            } else {
+                android.util.Log.e("EMFGhost", "Cannot turn ON: cameraManager=" + cameraManager + ", cameraId=" + cameraId);
+            }
+        } catch (CameraAccessException e) {
+            android.util.Log.e("EMFGhost", "Error turning flashlight ON", e);
+        }
+    }
+
+    private void turnOffFlashlight() {
+        if (!isFlashlightOn) {
+            android.util.Log.d("EMFGhost", "Flashlight already OFF, skipping");
+            return; // Already off, don't call API again
+        }
+
+        android.util.Log.d("EMFGhost", "Attempting to turn flashlight OFF");
+        try {
+            if (cameraManager != null && cameraId != null) {
+                cameraManager.setTorchMode(cameraId, false);
+                isFlashlightOn = false;
+                notifyFlashlightStatus();
+                android.util.Log.d("EMFGhost", "Flashlight turned OFF successfully");
+            } else {
+                android.util.Log.e("EMFGhost", "Cannot turn OFF: cameraManager=" + cameraManager + ", cameraId=" + cameraId);
+            }
+        } catch (CameraAccessException e) {
+            android.util.Log.e("EMFGhost", "Error turning flashlight OFF", e);
+        }
+    }
+
+    private void notifyFlashlightStatus() {
+        List<Fragment> fragments = getSupportFragmentManager().getFragments();
+        for (Fragment fragment : fragments) {
+            if (fragment instanceof SensorDataListener) {
+                ((SensorDataListener) fragment).onFlashlightStatusChanged(isFlashlightOn, currentFlickerFrequency);
+            }
+        }
+    }
+
+    public boolean isFlashlightOn() {
+        return isFlashlightOn;
     }
 }
 

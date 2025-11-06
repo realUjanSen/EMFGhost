@@ -159,6 +159,9 @@ An Android app that uses your phone's magnetometer and temperature sensors to de
 5. Review graphs later to find patterns
 6. The analog view provides a more atmospheric experience for investigations
 7. Listen for pitch changes in the audio alert - rapid changes may indicate activity
+8. Enable flashlight flickering for visual feedback in dark environments
+9. Flashlight will activate (start flickering) only when EMF reaches 60 μT or higher
+10. Rapid flashlight flickering (10 flickers/3s at 550+ μT) indicates extremely strong EMF activity
 
 Happy Ghost Hunting!
 

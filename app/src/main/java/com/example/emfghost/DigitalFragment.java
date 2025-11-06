@@ -10,6 +10,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.fragment.app.Fragment;
 
 public class DigitalFragment extends Fragment implements SensorDataListener {
@@ -17,7 +18,9 @@ public class DigitalFragment extends Fragment implements SensorDataListener {
     private View led1, led2, led3, led4, led5;
     private TextView emfValue, tempValue, recordingStatus;
     private TextView magneticSensorInfo, temperatureSensorInfo;
+    private TextView flashlightStatus;
     private Button recordButton, viewRecordsButton;
+    private SwitchCompat flashlightSwitch;
     private boolean isRecording = false;
 
     @Nullable
@@ -38,6 +41,8 @@ public class DigitalFragment extends Fragment implements SensorDataListener {
         viewRecordsButton = view.findViewById(R.id.viewRecordsButton);
         magneticSensorInfo = view.findViewById(R.id.magneticSensorInfo);
         temperatureSensorInfo = view.findViewById(R.id.temperatureSensorInfo);
+        flashlightSwitch = view.findViewById(R.id.flashlightSwitch);
+        flashlightStatus = view.findViewById(R.id.flashlightStatus);
 
         // Display sensor information
         if (getActivity() instanceof MainActivity) {
@@ -56,6 +61,12 @@ public class DigitalFragment extends Fragment implements SensorDataListener {
         viewRecordsButton.setOnClickListener(v -> {
             Intent intent = new Intent(getActivity(), RecordsActivity.class);
             startActivity(intent);
+        });
+
+        flashlightSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).setFlashlightEnabled(isChecked);
+            }
         });
 
         return view;
@@ -142,10 +153,10 @@ public class DigitalFragment extends Fragment implements SensorDataListener {
         getActivity().runOnUiThread(() -> {
             if (recordButton != null) {
                 if (recording) {
-                    recordButton.setText("STOP RECORDING");
+                    recordButton.setText("STOP LOGGING");
                     recordButton.setBackgroundTintList(getResources().getColorStateList(android.R.color.holo_red_dark));
                 } else {
-                    recordButton.setText("START RECORDING");
+                    recordButton.setText("START LOGGING");
                     recordButton.setBackgroundTintList(getResources().getColorStateList(android.R.color.holo_green_dark));
                 }
             }
@@ -189,6 +200,32 @@ public class DigitalFragment extends Fragment implements SensorDataListener {
         } else {
             led5.setBackgroundResource(R.drawable.led_red_dim);
         }
+    }
+
+    @Override
+    public void onFlashlightStatusChanged(boolean isOn, float flickerFrequency) {
+        if (getActivity() == null) return;
+
+        getActivity().runOnUiThread(() -> {
+            if (flashlightStatus != null) {
+                // Use fixed-width format to prevent shifting
+                String status = isOn ? "ON " : "OFF";
+                String freqText;
+                if (flickerFrequency == 0f) {
+                    freqText = "0.0 Hz";
+                } else {
+                    freqText = String.format("%.1f Hz", flickerFrequency);
+                }
+
+                flashlightStatus.setText(String.format("Status: %s    Flicker: %s", status, freqText));
+
+                if (isOn) {
+                    flashlightStatus.setTextColor(0xFF00FF00); // Green
+                } else {
+                    flashlightStatus.setTextColor(0xFF888888); // Gray
+                }
+            }
+        });
     }
 }
 

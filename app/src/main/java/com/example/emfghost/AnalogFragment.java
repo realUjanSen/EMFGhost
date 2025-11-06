@@ -49,5 +49,10 @@ public class AnalogFragment extends Fragment implements SensorDataListener {
     public void onRecordingStateChanged(boolean isRecording) {
         // Analog view doesn't show recording state
     }
+
+    @Override
+    public void onFlashlightStatusChanged(boolean isOn, float flickerFrequency) {
+        // Analog view doesn't show flashlight status
+    }
 }
 

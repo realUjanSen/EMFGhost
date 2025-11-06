@@ -19,6 +19,14 @@
   - Activates at 60 μT
   - Increasing pitch and speed with EMF intensity (like Geiger counter)
   - Continuous loop while detecting
+- **Flashlight Flickering**:
+  - Visual feedback through phone's flashlight
+  - Toggle on/off with switch
+  - Responds to EMF levels:
+    - Off (< 60 μT): No activity detected
+    - Little flicker (60-100 μT): Mostly on with brief dark periods - possible activity
+    - Normal flicker (100-550 μT): 3 bursts per 3 seconds - confirmed activity
+    - Extreme flicker (550+ μT): 10 rapid bursts per 3 seconds - intense activity!
 - **Session Recording**: Save EMF and temperature data over time
 - **Graphical Analysis**: View past sessions with interactive graphs
 - **Local Storage**: All data stored on device using Room database
@@ -63,6 +71,16 @@ When no hardware sensor available:
 - Pitch/Speed: 0.5x (60 μT) to 2.0x (600+ μT)
 - Behavior: Faster beeping = stronger field (mimics real EMF detectors)
 - Note: Pitch and speed are linked due to Android API limitation
+
+#### Flashlight Control
+- API: Camera2 (torch mode)
+- Flicker Patterns:
+  - **Little**: 0.2s dark period at 2.8-3.0s in each 3s cycle
+  - **Normal**: Three 0.2s ON bursts with 0.8s gaps (pattern repeats every 3s)
+  - **Extreme**: Ten 0.2s ON bursts with 0.1s gaps (pattern repeats every 3s)
+- Update Rate: 50ms (20Hz) for smooth flickering
+- Auto-off: Disables when app pauses or switch turned off
+- Permission: None required (camera.flash feature only)
 
 #### Data Storage
 - Database: Room (SQLite)
